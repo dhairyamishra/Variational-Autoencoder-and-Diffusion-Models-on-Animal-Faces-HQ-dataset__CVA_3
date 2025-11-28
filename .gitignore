@@ -10,7 +10,10 @@ data/
 *.ckpt
 results_afhq/
 test_run/
+test_run_*
 checkpoints/
+path_to_save_folder/
+results_part2/
 
 # Generated samples and visualizations
 sample_ddpm_*/
@@ -54,3 +57,10 @@ desktop.ini
 
 # wandb
 wandb/
+offline-run-*/  # Wandb offline run folders
+
+# Additional patterns for diffusion training
+runs/  # General runs folder
+lightning_logs/  # PyTorch Lightning logs
+tensorboard_logs/  # TensorBoard logs
+weights/  # Model weights folder

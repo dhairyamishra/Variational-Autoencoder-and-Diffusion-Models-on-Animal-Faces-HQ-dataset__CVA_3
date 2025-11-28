@@ -135,6 +135,9 @@ class Trainer(object):
         if load_path != None:
             self.load(load_path)
 
+        # Initialize wandb in offline mode
+        wandb.init(mode="offline")
+
     def save(self, itrs=None):
         data = {
             "step": self.step,
