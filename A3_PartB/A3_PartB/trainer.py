@@ -1,5 +1,6 @@
 import os
 import torch
+import time
 
 from torch.utils import data
 from pathlib import Path
@@ -7,9 +8,18 @@ from torch.optim import Adam
 from torchvision import transforms, utils
 from PIL import Image
 
-from tqdm import tqdm
 from cleanfid import fid
 import wandb
+
+
+# Custom transform function to replace lambda (Windows multiprocessing compatible)
+def normalize_to_neg_one_to_one(t):
+    return (t * 2) - 1
+
+
+# Helper function to check if wandb is enabled
+def is_wandb_enabled():
+    return os.environ.get("WANDB_MODE") != "disabled"
 
 
 def cycle(dl):
@@ -43,7 +53,7 @@ class Dataset(data.Dataset):
                     transforms.RandomCrop(image_size),
                     transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
-                    transforms.Lambda(lambda t: (t * 2) - 1),
+                    transforms.Lambda(normalize_to_neg_one_to_one),
                 ]
             )
         else:
@@ -52,7 +62,7 @@ class Dataset(data.Dataset):
                     transforms.Resize((int(image_size * 1.12), int(image_size * 1.12))),
                     transforms.CenterCrop(image_size),
                     transforms.ToTensor(),
-                    transforms.Lambda(lambda t: (t * 2) - 1),
+                    transforms.Lambda(normalize_to_neg_one_to_one),
                 ]
             )
 
@@ -110,7 +120,7 @@ class Trainer(object):
                 batch_size=train_batch_size,
                 shuffle=shuffle,
                 pin_memory=True,
-                num_workers=16,
+                num_workers=0,  # Set to 0 for Windows compatibility (was 16)
                 drop_last=True,
             )
         )
@@ -161,7 +171,12 @@ class Trainer(object):
             4. Save the model every self.save_and_sample_every steps
         """
         milestone = 0
-        for self.step in tqdm(range(start_step, self.train_num_steps), desc="steps"):
+        start_time = time.time()
+        
+        # Calculate progress update interval (10% of total steps, minimum 10 steps)
+        progress_interval = max(10, self.train_num_steps // 10)  # 10 intervals = 10% each
+        
+        for self.step in range(start_step, self.train_num_steps):
             u_loss = 0
             for i in range(self.gradient_accumulate_every):
                 data_1 = next(self.dl)
@@ -173,10 +188,31 @@ class Trainer(object):
                 (loss / self.gradient_accumulate_every).backward()
 
             # use wandb to log the loss
-            wandb.log({"loss": u_loss / self.gradient_accumulate_every})
+            if is_wandb_enabled():
+                wandb.log({"loss": u_loss / self.gradient_accumulate_every})
 
             self.opt.step()
             self.opt.zero_grad()
+            
+            # Print progress every 10% of training
+            if (self.step + 1) % progress_interval == 0 or (self.step + 1) == self.train_num_steps:
+                elapsed = time.time() - start_time
+                steps_done = self.step + 1 - start_step
+                steps_remaining = self.train_num_steps - (self.step + 1)
+                eta_seconds = (elapsed / steps_done) * steps_remaining if steps_done > 0 else 0
+                eta_minutes = eta_seconds / 60
+                progress_pct = (self.step + 1) / self.train_num_steps * 100
+                
+                # Use \r to overwrite the same line (ASCII characters only)
+                progress_bar = '=' * int(progress_pct // 10) + '-' * (10 - int(progress_pct // 10))
+                print(f"\r[{progress_bar}] {progress_pct:.0f}% | Step {self.step + 1}/{self.train_num_steps} | "
+                      f"Loss: {u_loss / self.gradient_accumulate_every:.4f} | "
+                      f"Elapsed: {elapsed/60:.1f}min | ETA: {eta_minutes:.1f}min", 
+                      end='', flush=True)
+                
+                # Print newline only at completion
+                if (self.step + 1) == self.train_num_steps:
+                    print()  # Final newline
 
             if (self.step + 1) % self.save_and_sample_every == 0:
                 milestone = self.step // self.save_and_sample_every
@@ -210,8 +246,13 @@ class Trainer(object):
                             img.save(os.path.join(self.val_folder, img_name))
 
                     fid_score = fid.compute_fid(save_folder, self.val_folder)
-                    wandb.log({"fid": fid_score})
-                    self.save()
+                    if is_wandb_enabled():
+                        wandb.log({"fid": fid_score})
+                    else:
+                        print(f"FID Score: {fid_score}")
+                
+                # Always save model at checkpoints (moved outside fid block)
+                self.save()
 
         images = self.model.sample(self.batch_size)
         grid = utils.make_grid(images)
@@ -272,6 +313,11 @@ class Trainer(object):
                 img_backward.append(img_vis)
 
         # save the images in wandb
-        wandb.log({"forward_diffusion": [wandb.Image(img) for img in img_forward]})
-        wandb.log({"backward_diffusion": [wandb.Image(img) for img in img_backward]})
+        if is_wandb_enabled():
+            wandb.log({"forward_diffusion": [wandb.Image(img) for img in img_forward]})
+            wandb.log({"backward_diffusion": [wandb.Image(img) for img in img_backward]})
+        else:
+            print("✅ Forward and backward diffusion images generated (wandb disabled)")
+            print(f"   Forward diffusion: {len(img_forward)} images")
+            print(f"   Backward diffusion: {len(img_backward)} images")
         # ####################################################################
