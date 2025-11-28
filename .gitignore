@@ -59,6 +59,10 @@ desktop.ini
 wandb/
 offline-run-*/  # Wandb offline run folders
 
+# Results and training outputs
+results/
+results_*/
+
 # Additional patterns for diffusion training
 runs/  # General runs folder
 lightning_logs/  # PyTorch Lightning logs

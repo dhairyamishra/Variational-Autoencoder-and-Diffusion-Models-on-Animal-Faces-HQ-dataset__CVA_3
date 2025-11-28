@@ -12,11 +12,6 @@ from cleanfid import fid
 import wandb
 
 
-# Helper function to replace lambda (Windows multiprocessing compatible)
-def normalize_to_neg_one_to_one(t):
-    return (t * 2) - 1
-
-
 def cycle(dl):
     while True:
         for data in dl:
@@ -48,7 +43,7 @@ class Dataset(data.Dataset):
                     transforms.RandomCrop(image_size),
                     transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
-                    transforms.Lambda(normalize_to_neg_one_to_one),
+                    transforms.Lambda(lambda t: (t * 2) - 1),
                 ]
             )
         else:
@@ -57,7 +52,7 @@ class Dataset(data.Dataset):
                     transforms.Resize((int(image_size * 1.12), int(image_size * 1.12))),
                     transforms.CenterCrop(image_size),
                     transforms.ToTensor(),
-                    transforms.Lambda(normalize_to_neg_one_to_one),
+                    transforms.Lambda(lambda t: (t * 2) - 1),
                 ]
             )
 
@@ -115,7 +110,7 @@ class Trainer(object):
                 batch_size=train_batch_size,
                 shuffle=shuffle,
                 pin_memory=True,
-                num_workers=0,  # Set to 0 for Windows compatibility
+                num_workers=16,
                 drop_last=True,
             )
         )
@@ -131,13 +126,9 @@ class Trainer(object):
             if device is not None
             else ("cuda" if torch.cuda.is_available() else "cpu")
         )
-        print(f"Using device: {self.device}")
 
         if load_path != None:
             self.load(load_path)
-
-        # Initialize wandb in offline mode
-        # wandb.init(mode="offline")
 
     def save(self, itrs=None):
         data = {
