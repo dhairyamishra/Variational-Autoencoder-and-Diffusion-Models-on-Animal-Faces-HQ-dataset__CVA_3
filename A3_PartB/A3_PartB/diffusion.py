@@ -121,9 +121,10 @@ class Diffusion(nn.Module):
         # Hint: use extract function to get the coefficients at time t
         predicted_epsilon = self.model(x, t)
         
-        alphas_cumprod_t = extract(self.alphas_cumprod, t, x.shape)
-        alphas_cumprod_prev_t = extract(self.alphas_cumprod_prev, t, x.shape)
-        betas_t = extract(self.betas, t, x.shape)
+        # Extract only the coefficients we actually use
+        # alphas_cumprod_t = extract(self.alphas_cumprod, t, x.shape)  # UNUSED - commented out
+        # alphas_cumprod_prev_t = extract(self.alphas_cumprod_prev, t, x.shape)  # UNUSED - commented out
+        # betas_t = extract(self.betas, t, x.shape)  # UNUSED - commented out
         sqrt_one_minus_alphas_cumprod_t = extract(self.sqrt_one_minus_alphas_cumprod, t, x.shape)
         sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, x.shape)
         posterior_mean_coef1_t = extract(self.posterior_mean_coef1, t, x.shape)
@@ -137,9 +138,10 @@ class Diffusion(nn.Module):
         # Posterior mean
         posterior_mean = posterior_mean_coef1_t * x_recon + posterior_mean_coef2_t * x
         
-        # Posterior variance
+        # Posterior variance and sampling
         if t_index == 0:
-            return x_recon
+            # Last step: no noise, just use the posterior mean (z=0 in Algorithm 2)
+            return posterior_mean
         else:
             noise = torch.randn_like(x)
             return posterior_mean + torch.sqrt(posterior_variance_t) * noise
@@ -193,30 +195,31 @@ class Diffusion(nn.Module):
             The sampled image.
         """
 
-        ####### TODO: Implement the p_sample function #######
+        ####### TODO: Implement the q_sample function #######
         if noise is None:
             noise = torch.randn_like(x_0)
         
-        sqrt_alphas_cumprod_t = extract(self.alphas_cumprod, t, x_0.shape).sqrt()
-        sqrt_one_minus_alphas_cumprod_t = extract(1 - self.alphas_cumprod, t, x_0.shape).sqrt()
+        # Use pre-computed sqrt buffers (already computed in __init__)
+        sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, x_0.shape)
+        sqrt_one_minus_alphas_cumprod_t = extract(self.sqrt_one_minus_alphas_cumprod, t, x_0.shape)
         
         x_t = sqrt_alphas_cumprod_t * x_0 + sqrt_one_minus_alphas_cumprod_t * noise
         return x_t
 
-    def p_losses(self, x_0, t, noise):
+    def p_losses(self, x_t, t, noise):
         """
         Computes the loss for the forward diffusion.
         Args:
-            x_0: The initial image.
+            x_t: The noisy image at timestep t.
             t: The time index to compute the loss at.
-            noise: The noise tensor to use. If None, noise will be sampled.
+            noise: The ground truth noise that was added.
         Returns:
             The computed loss.
         """
         ###### TODO: Implement the p_losses function #######
         # define loss function wrt. the model output and the target
         # Hint: you can use pytorch built-in loss functions: F.l1_loss
-        predicted_noise = self.model(x_0, t)
+        predicted_noise = self.model(x_t, t)
         loss = F.l1_loss(predicted_noise, noise)
         return loss
 
