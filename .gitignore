@@ -17,7 +17,7 @@ results_part2/
 
 # Generated samples and visualizations
 sample_ddpm_*/
-*.png
+sample*.png
 *.jpg
 *.jpeg
 
