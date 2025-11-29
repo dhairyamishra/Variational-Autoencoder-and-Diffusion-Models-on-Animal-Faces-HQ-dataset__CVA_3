@@ -12,14 +12,15 @@ from cleanfid import fid
 import wandb
 
 
+# Helper function to replace lambda (Windows multiprocessing compatible)
+def normalize_to_neg_one_to_one(t):
+    return (t * 2) - 1
+
+
 def cycle(dl):
     while True:
         for data in dl:
             yield data
-
-
-def normalize_image(t):
-    return (t * 2) - 1
 
 
 class Dataset(data.Dataset):
@@ -47,7 +48,7 @@ class Dataset(data.Dataset):
                     transforms.RandomCrop(image_size),
                     transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
-                    transforms.Lambda(normalize_image),
+                    transforms.Lambda(normalize_to_neg_one_to_one),
                 ]
             )
         else:
@@ -56,7 +57,7 @@ class Dataset(data.Dataset):
                     transforms.Resize((int(image_size * 1.12), int(image_size * 1.12))),
                     transforms.CenterCrop(image_size),
                     transforms.ToTensor(),
-                    transforms.Lambda(normalize_image),
+                    transforms.Lambda(normalize_to_neg_one_to_one),
                 ]
             )
 
@@ -114,7 +115,7 @@ class Trainer(object):
                 batch_size=train_batch_size,
                 shuffle=shuffle,
                 pin_memory=True,
-                num_workers=0,
+                num_workers=0,  # Set to 0 for Windows compatibility
                 drop_last=True,
             )
         )
@@ -130,9 +131,13 @@ class Trainer(object):
             if device is not None
             else ("cuda" if torch.cuda.is_available() else "cpu")
         )
+        print(f"Using device: {self.device}")
 
         if load_path != None:
             self.load(load_path)
+
+        # Initialize wandb in offline mode
+        # wandb.init(mode="offline")
 
     def save(self, itrs=None):
         data = {
@@ -275,20 +280,7 @@ class Trainer(object):
                 img_vis = (img_vis + 1) / 2
                 img_backward.append(img_vis)
 
-        # Create grids and save to wandb
-        forward_grids = [utils.make_grid(img, nrow=4) for img in img_forward]
-        backward_grids = [utils.make_grid(img, nrow=4) for img in img_backward]
-        
-        # Save grids locally for notebook display
-        os.makedirs(self.results_folder, exist_ok=True)
-        for i, grid in enumerate(forward_grids):
-            utils.save_image(grid, os.path.join(self.results_folder, f"forward_diffusion_{i}.png"))
-        for i, grid in enumerate(backward_grids):
-            utils.save_image(grid, os.path.join(self.results_folder, f"backward_diffusion_{i}.png"))
-        
-        wandb.log({"forward_diffusion": [wandb.Image(grid) for grid in forward_grids]})
-        wandb.log({"backward_diffusion": [wandb.Image(grid) for grid in backward_grids]})
-        
-        print("Visualization completed! Check Wandb for results.")
-        print(f"Images saved locally in: {self.results_folder}")
+        # save the images in wandb
+        wandb.log({"forward_diffusion": [wandb.Image(img) for img in img_forward]})
+        wandb.log({"backward_diffusion": [wandb.Image(img) for img in img_backward]})
         # ####################################################################
